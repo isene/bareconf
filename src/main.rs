@@ -1,4 +1,5 @@
-use crust::{Crust, Pane, Input, style};
+use crust::{Crust, Pane, Input};
+use crust::style;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -21,21 +22,33 @@ const THEMES: [[u8; 16]; 6] = [
     [148, 148, 81, 208, 148, 81, 141, 228, 81, 197, 141, 208, 245, 7, 245, 240],
 ];
 
-#[derive(PartialEq, Clone, Copy)]
-enum Tab { Colors, Themes, Aliases }
+#[derive(Clone)]
+enum ItemKind { Color(usize), Theme, Alias(String, String) }
+
+struct Category {
+    name: String,
+    items: Vec<Item>,
+}
+
+#[derive(Clone)]
+struct Item {
+    label: String,
+    kind: ItemKind,
+}
 
 struct App {
+    top: Pane,
+    left: Pane,
+    right: Pane,
+    status: Pane,
     colors: [u8; 16],
     nicks: BTreeMap<String, String>,
     gnicks: BTreeMap<String, String>,
     abbrevs: BTreeMap<String, String>,
     bookmarks: BTreeMap<String, String>,
-    color_idx: usize,
-    palette_row: u8,
-    palette_col: u8,
-    tab: Tab,
-    alias_tab: usize,
-    alias_idx: usize,
+    categories: Vec<Category>,
+    cat_index: usize,
+    item_index: usize,
     theme_idx: usize,
     dirty: bool,
     config_path: PathBuf,
@@ -45,22 +58,28 @@ impl App {
     fn new() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
         let config_path = PathBuf::from(&home).join(".barerc");
+        let (cols, rows) = Crust::terminal_size();
+        let split = 25u16;
+        let lw = split - 1;
+        let rx = split + 3;
+        let rw = cols.saturating_sub(rx).saturating_sub(1);
+
         let mut app = App {
-            colors: THEMES[0], nicks: BTreeMap::new(), gnicks: BTreeMap::new(),
+            top: Pane::new(1, 1, cols, 1, 0, 236),
+            left: Pane::new(2, 3, lw, rows - 4, 255, 0),
+            right: Pane::new(rx, 3, rw, rows - 4, 252, 0),
+            status: Pane::new(1, rows, cols, 1, 252, 236),
+            colors: THEMES[0],
+            nicks: BTreeMap::new(), gnicks: BTreeMap::new(),
             abbrevs: BTreeMap::new(), bookmarks: BTreeMap::new(),
-            color_idx: 0, palette_row: 0, palette_col: 0,
-            tab: Tab::Colors, alias_tab: 0, alias_idx: 0, theme_idx: 0,
+            categories: vec![], cat_index: 0, item_index: 0, theme_idx: 0,
             dirty: false, config_path,
         };
+        app.left.border = true;
+        app.right.border = true;
         app.load_config();
-        let c = app.colors[0];
-        app.palette_row = c / 16;
-        app.palette_col = c % 16;
+        app.build_categories();
         app
-    }
-
-    fn palette_idx(&self) -> u8 {
-        self.palette_row * 16 + self.palette_col
     }
 
     fn load_config(&mut self) {
@@ -103,246 +122,271 @@ impl App {
         let _ = std::fs::write(&self.config_path, out);
     }
 
-    fn alias_list(&self) -> Vec<(String, String)> {
-        match self.alias_tab {
-            0 => self.nicks.iter().map(|(k,v)| (k.clone(), v.clone())).collect(),
-            1 => self.gnicks.iter().map(|(k,v)| (k.clone(), v.clone())).collect(),
-            2 => self.abbrevs.iter().map(|(k,v)| (k.clone(), v.clone())).collect(),
-            3 => self.bookmarks.iter().map(|(k,v)| (k.clone(), v.clone())).collect(),
-            _ => vec![],
-        }
+    fn build_categories(&mut self) {
+        let mut cats = vec![
+            Category { name: "Theme".into(), items: vec![
+                Item { label: "Theme".into(), kind: ItemKind::Theme },
+            ]},
+            Category { name: "Prompt Colors".into(), items:
+                (0..6).map(|i| Item {
+                    label: COLOR_DESCS[i].into(), kind: ItemKind::Color(i),
+                }).collect(),
+            },
+            Category { name: "UI Colors".into(), items:
+                (6..16).map(|i| Item {
+                    label: COLOR_DESCS[i].into(), kind: ItemKind::Color(i),
+                }).collect(),
+            },
+        ];
+        // Alias categories
+        let mut nick_items: Vec<Item> = self.nicks.iter()
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("nick".into(), v.clone()) }).collect();
+        if nick_items.is_empty() { nick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("nick".into(), String::new()) }); }
+        cats.push(Category { name: "Nicks".into(), items: nick_items });
+
+        let mut gnick_items: Vec<Item> = self.gnicks.iter()
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("gnick".into(), v.clone()) }).collect();
+        if gnick_items.is_empty() { gnick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("gnick".into(), String::new()) }); }
+        cats.push(Category { name: "Gnicks".into(), items: gnick_items });
+
+        let mut abbrev_items: Vec<Item> = self.abbrevs.iter()
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("abbrev".into(), v.clone()) }).collect();
+        if abbrev_items.is_empty() { abbrev_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("abbrev".into(), String::new()) }); }
+        cats.push(Category { name: "Abbrevs".into(), items: abbrev_items });
+
+        let mut bm_items: Vec<Item> = self.bookmarks.iter()
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("bm".into(), v.clone()) }).collect();
+        if bm_items.is_empty() { bm_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("bm".into(), String::new()) }); }
+        cats.push(Category { name: "Bookmarks".into(), items: bm_items });
+
+        self.categories = cats;
     }
 
-    fn alias_tab_name(&self) -> &str {
-        ["Nicks", "Gnicks", "Abbrevs", "Bookmarks"][self.alias_tab]
-    }
-}
+    fn render(&mut self) {
+        let dirty_mark = if self.dirty { " [modified]" } else { "" };
+        // Prompt preview
+        let preview = format!("  {}@{}: {} ({}) {} {}",
+            style::fg("user", self.colors[0]), style::fg("host", self.colors[1]),
+            style::fg("~/bare", self.colors[2]), style::fg("main", self.colors[11]),
+            style::fg(">", self.colors[3]), style::fg("echo hello", self.colors[4]));
+        self.top.say(&format!(" bareconf{}  {}", dirty_mark, preview));
 
-fn prompt_preview(app: &App) -> String {
-    format!("  {}@{}: {} ({}) {} {}",
-        style::fg("user", app.colors[0]),
-        style::fg("host", app.colors[1]),
-        style::fg("~/projects/bare", app.colors[2]),
-        style::fg("main", app.colors[11]),
-        style::fg(">", app.colors[3]),
-        style::fg("echo hello", app.colors[4]),
-    )
-}
-
-fn color_list_text(app: &App) -> String {
-    COLOR_NAMES.iter().enumerate().map(|(i, name)| {
-        let c = app.colors[i];
-        let sample = style::fg("sample", c);
-        if i == app.color_idx {
-            format!("  {} {:<10}{:>3}  {}", style::bold(">"), style::bold(name), c, sample)
-        } else {
-            format!("    {:<10}{:>3}  {}", name, c, sample)
-        }
-    }).collect::<Vec<_>>().join("\n")
-}
-
-fn palette_text(app: &App) -> String {
-    let sel = app.palette_idx();
-    let cur = app.colors[app.color_idx];
-    let mut lines = Vec::new();
-    for row in 0..16u8 {
-        let mut line = String::new();
-        for col in 0..16u8 {
-            let idx = row * 16 + col;
-            if idx == sel {
-                let fg: u8 = if idx < 8 || (idx >= 16 && idx < 52) { 15 } else { 0 };
-                line += &style::fb(&format!("{:^3}", idx), fg, idx);
-            } else if idx == cur {
-                let fg: u8 = if idx < 8 || (idx >= 16 && idx < 52) { 15 } else { 0 };
-                line += &style::fb(" * ", fg, idx);
+        // Left: category list
+        let mut lines = Vec::new();
+        for (i, cat) in self.categories.iter().enumerate() {
+            if i == self.cat_index {
+                lines.push(style::reverse(&format!(" {} ", cat.name)));
             } else {
-                line += &style::bg("   ", idx);
+                lines.push(format!(" {} ", cat.name));
             }
         }
-        lines.push(line);
+        self.left.set_text(&lines.join("\n"));
+        self.left.ix = 0;
+        self.left.full_refresh();
+
+        // Right: items for selected category
+        self.render_items();
+
+        // Status
+        let cat_len = self.categories.get(self.cat_index).map(|c| c.items.len()).unwrap_or(0);
+        self.status.say(&format!(
+            " {}/{}  j/k:item  J/K:category  h/l:change  Enter:edit  W:save  q:quit",
+            self.item_index + 1, cat_len));
     }
-    lines.push(String::new());
-    lines.push(format!("{}: {} (current: {}, selecting: {})",
-        style::bold(COLOR_NAMES[app.color_idx]),
-        COLOR_DESCS[app.color_idx], cur, sel));
-    lines.join("\n")
-}
 
-fn themes_text(app: &App, max_w: u16) -> String {
-    // Calculate how many swatch chars we can fit
-    // Each line: 2 (marker) + 12 (name) + swatches
-    let avail = (max_w as usize).saturating_sub(16);
-    let swatch_w = (avail / 12).max(1).min(3);
+    fn render_items(&mut self) {
+        let Some(cat) = self.categories.get(self.cat_index) else { return };
+        let mut lines = Vec::new();
+        lines.push(style::fg(&style::bold(&cat.name), 81));
+        lines.push(style::fg(&"\u{2500}".repeat(40), 245));
+        lines.push(String::new());
 
-    THEME_NAMES.iter().enumerate().map(|(i, name)| {
-        let marker = if i == app.theme_idx { ">" } else { " " };
-        let swatch_str: String = " ".repeat(swatch_w);
-        let mut swatches = String::new();
-        for c in &THEMES[i][..12] {
-            swatches += &style::bg(&swatch_str, *c);
+        for (i, item) in cat.items.iter().enumerate() {
+            let selected = i == self.item_index;
+            let label = format!("{:<16}", item.label);
+            let value_str = match &item.kind {
+                ItemKind::Color(ci) => {
+                    let c = self.colors[*ci];
+                    let swatch = style::fg("\u{2588}\u{2588}\u{2588}", c);
+                    format!("{} {:>3}", swatch, c)
+                }
+                ItemKind::Theme => {
+                    style::fg(THEME_NAMES[self.theme_idx], 220)
+                }
+                ItemKind::Alias(_, val) => {
+                    if val.is_empty() { style::fg("-", 245) } else { val.clone() }
+                }
+            };
+            let arrow_l = if selected { "\u{25C0} " } else { "  " };
+            let arrow_r = if selected { " \u{25B6}" } else { "  " };
+            let line = format!("  {}{}{}{}",
+                if selected { style::underline(&label) } else { label },
+                arrow_l, value_str, arrow_r);
+            lines.push(line);
         }
-        if i == app.theme_idx {
-            format!("{} {:<12}{}", marker, style::bold(name), swatches)
-        } else {
-            format!("{} {:<12}{}", marker, name, swatches)
-        }
-    }).collect::<Vec<_>>().join("\n")
-}
 
-fn aliases_text(app: &App) -> String {
-    let list = app.alias_list();
-    if list.is_empty() { return "  (no entries)".into(); }
-    list.iter().enumerate().map(|(i, (k, v))| {
-        let marker = if i == app.alias_idx { ">" } else { " " };
-        if i == app.alias_idx {
-            format!("{} {} = {}", marker, style::fg(&style::bold(k), 6), style::bold(v))
-        } else {
-            format!("{} {} = {}", marker, style::fg(k, 6), v)
+        // Color palette preview for color items
+        if let Some(item) = cat.items.get(self.item_index) {
+            if let ItemKind::Color(ci) = &item.kind {
+                let current = self.colors[*ci];
+                lines.push(String::new());
+                lines.push(style::fg(&format!("Palette (current: {})", current), 245));
+                for row in 0..16u8 {
+                    let mut pl = String::from("  ");
+                    for col in 0..16u8 {
+                        let c = row * 16 + col;
+                        if c == current {
+                            let fg: u8 = if c < 8 || (c >= 16 && c < 52) { 15 } else { 0 };
+                            pl.push_str(&style::fb(&format!("{:^3}", c), fg, c));
+                        } else {
+                            pl.push_str(&style::fg("\u{2588}", c));
+                        }
+                    }
+                    lines.push(pl);
+                }
+            }
         }
-    }).collect::<Vec<_>>().join("\n")
+
+        // Theme swatches
+        if let Some(item) = cat.items.get(self.item_index) {
+            if let ItemKind::Theme = &item.kind {
+                lines.push(String::new());
+                for (i, name) in THEME_NAMES.iter().enumerate() {
+                    let marker = if i == self.theme_idx { "> " } else { "  " };
+                    let mut swatches = String::new();
+                    for c in &THEMES[i][..12] {
+                        swatches.push_str(&style::fg("\u{2588}", *c));
+                    }
+                    let n = if i == self.theme_idx { style::bold(name) } else { name.to_string() };
+                    lines.push(format!("{}{:<12} {}", marker, n, swatches));
+                }
+            }
+        }
+
+        self.right.set_text(&lines.join("\n"));
+        self.right.ix = 0;
+        self.right.full_refresh();
+    }
+
+    fn move_down(&mut self) {
+        let len = self.categories.get(self.cat_index).map(|c| c.items.len()).unwrap_or(0);
+        if self.item_index + 1 < len { self.item_index += 1; }
+    }
+    fn move_up(&mut self) {
+        if self.item_index > 0 { self.item_index -= 1; }
+    }
+    fn next_category(&mut self) {
+        if self.cat_index + 1 < self.categories.len() { self.cat_index += 1; self.item_index = 0; }
+    }
+    fn prev_category(&mut self) {
+        if self.cat_index > 0 { self.cat_index -= 1; self.item_index = 0; }
+    }
+
+    fn next_value(&mut self) {
+        let Some(cat) = self.categories.get(self.cat_index) else { return };
+        let Some(item) = cat.items.get(self.item_index) else { return };
+        match &item.kind {
+            ItemKind::Color(ci) => {
+                self.colors[*ci] = self.colors[*ci].wrapping_add(1);
+                self.dirty = true;
+            }
+            ItemKind::Theme => {
+                self.theme_idx = (self.theme_idx + 1) % THEME_NAMES.len();
+                self.colors = THEMES[self.theme_idx];
+                self.dirty = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn prev_value(&mut self) {
+        let Some(cat) = self.categories.get(self.cat_index) else { return };
+        let Some(item) = cat.items.get(self.item_index) else { return };
+        match &item.kind {
+            ItemKind::Color(ci) => {
+                self.colors[*ci] = self.colors[*ci].wrapping_sub(1);
+                self.dirty = true;
+            }
+            ItemKind::Theme => {
+                self.theme_idx = (self.theme_idx + THEME_NAMES.len() - 1) % THEME_NAMES.len();
+                self.colors = THEMES[self.theme_idx];
+                self.dirty = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn edit_value(&mut self) {
+        let Some(cat) = self.categories.get(self.cat_index) else { return };
+        let Some(item) = cat.items.get(self.item_index) else { return };
+        match &item.kind {
+            ItemKind::Color(ci) => {
+                let orig_bg = self.status.bg;
+                self.status.bg = 18;
+                let new_val = self.status.ask(
+                    &format!("{} (0-255): ", COLOR_DESCS[*ci]),
+                    &self.colors[*ci].to_string());
+                self.status.bg = orig_bg;
+                if let Ok(v) = new_val.parse::<u8>() {
+                    self.colors[*ci] = v;
+                    self.dirty = true;
+                }
+            }
+            ItemKind::Theme => { self.next_value(); }
+            _ => {}
+        }
+    }
 }
 
 fn main() {
     Crust::init();
-    Crust::clear_screen();
     let mut app = App::new();
-
-    let (w, h) = Crust::terminal_size();
-    // Layout: row 1 = title, row 2 = preview, rows 4..h-1 = content, row h = help
-    // Borders are drawn OUTSIDE pane area, so panes need 1px margin from edges
-    let left_w = (w * 2 / 5).min(35);
-    let left_x = 2u16;              // border at x=1 (left edge)
-    let right_x = left_x + left_w + 3; // gap for left border-right + space + right border-left
-    let right_w = w - right_x - 1;  // leave room for right border
-
-    let mut title_pane = Pane::new(1, 1, w, 1, 208, 0);
-    let mut preview_pane = Pane::new(1, 2, w, 1, 255, 0);
-    let content_y = 4u16;           // content starts here (border at y-1=3)
-    let content_h = h.saturating_sub(6);
-    let mut left_pane = Pane::new(left_x, content_y, left_w, content_h, 255, 0);
-    left_pane.border = true;
-    let mut right_pane = Pane::new(right_x, content_y, right_w, content_h, 255, 0);
-    right_pane.border = true;
-    let mut help_pane = Pane::new(1, h, w, 1, 0, 245);
+    app.left.border_refresh();
+    app.right.border_refresh();
+    app.render();
 
     loop {
-        // Title
-        let dirty = if app.dirty { " [modified]" } else { "" };
-        title_pane.say(&format!(" bareconf{}", dirty));
-        preview_pane.say(&prompt_preview(&app));
-
-        // Left pane: always shows color list
-        left_pane.fg = if app.tab == Tab::Colors { 208 } else { 240 };
-        left_pane.set_text(&color_list_text(&app));
-        left_pane.border_refresh();
-        left_pane.refresh();
-
-        // Right pane: depends on tab
-        let rtitle = match app.tab {
-            Tab::Colors => format!(" Palette: c_{} ", COLOR_NAMES[app.color_idx]),
-            Tab::Themes => " Themes ".into(),
-            Tab::Aliases => format!(" {} (Left/Right) ", app.alias_tab_name()),
-        };
-        right_pane.fg = if app.tab != Tab::Colors { 208 } else { 240 };
-        let rcontent = match app.tab {
-            Tab::Colors => palette_text(&app),
-            Tab::Themes => themes_text(&app, right_w),
-            Tab::Aliases => aliases_text(&app),
-        };
-        right_pane.set_text(&rcontent);
-        right_pane.border_refresh();
-        right_pane.refresh();
-
-        // Overlay border titles
-        let lfg = if app.tab == Tab::Colors { 208u8 } else { 240 };
-        let rfg = if app.tab != Tab::Colors { 208u8 } else { 240 };
-        crust::cursor::Cursor::set(left_pane.x, content_y - 1);
-        print!("{}", style::fg(&format!(" {} ", if app.tab == Tab::Colors { style::bold("Colors") } else { "Colors".into() }), lfg));
-        crust::cursor::Cursor::set(right_pane.x, content_y - 1);
-        print!("{}", style::fg(&rtitle, rfg));
-        std::io::Write::flush(&mut std::io::stdout()).ok();
-
-        // Help bar
-        let tabs = [("Colors", Tab::Colors), ("Themes", Tab::Themes), ("Aliases", Tab::Aliases)];
-        let tab_str: Vec<String> = tabs.iter().map(|(n, t)| {
-            if app.tab == *t { style::reverse(&format!(" {} ", n)) } else { format!(" {} ", n) }
-        }).collect();
-        help_pane.say(&format!(" {}  Up/Down:select  Enter:apply  s:save  q:quit", tab_str.join(" ")));
-
-        // Input
-        let key = match Input::getchr(None) { Some(k) => k, None => continue };
+        let Some(key) = Input::getchr(None) else { continue };
         match key.as_str() {
-            "q" | "ESC" => { if app.dirty { app.save_config(); } break; }
-            "s" => { app.save_config(); app.dirty = false; }
-            "TAB" => {
-                app.tab = match app.tab {
-                    Tab::Colors => Tab::Themes, Tab::Themes => Tab::Aliases, Tab::Aliases => Tab::Colors,
-                };
+            "q" | "ESC" => {
+                if app.dirty {
+                    app.status.say(&style::fg(" Save changes? (y/n)", 220));
+                    if let Some(k) = Input::getchr(None) {
+                        if k == "y" || k == "Y" { app.save_config(); }
+                    }
+                }
+                break;
             }
-            "S-TAB" => {
-                app.tab = match app.tab {
-                    Tab::Colors => Tab::Aliases, Tab::Themes => Tab::Colors, Tab::Aliases => Tab::Themes,
-                };
+            "j" | "DOWN" => { app.move_down(); app.render(); }
+            "k" | "UP" => { app.move_up(); app.render(); }
+            "J" | "PgDOWN" => { app.next_category(); app.render(); }
+            "K" | "PgUP" => { app.prev_category(); app.render(); }
+            "l" | "RIGHT" | "TAB" => { app.next_value(); app.render(); }
+            "h" | "LEFT" | "S-TAB" => { app.prev_value(); app.render(); }
+            "ENTER" => { app.edit_value(); app.render(); }
+            "W" | "s" => {
+                app.save_config();
+                app.dirty = false;
+                app.status.say(&style::fg(" Config saved", 82));
+                std::thread::sleep(std::time::Duration::from_millis(500));
+                app.render();
             }
-            "UP" => match app.tab {
-                Tab::Colors => {
-                    if app.color_idx > 0 {
-                        app.color_idx -= 1;
-                        let c = app.colors[app.color_idx];
-                        app.palette_row = c / 16; app.palette_col = c % 16;
-                    }
-                }
-                Tab::Themes => { if app.theme_idx > 0 { app.theme_idx -= 1; } }
-                Tab::Aliases => { if app.alias_idx > 0 { app.alias_idx -= 1; } }
-            },
-            "DOWN" => match app.tab {
-                Tab::Colors => {
-                    if app.color_idx < 15 {
-                        app.color_idx += 1;
-                        let c = app.colors[app.color_idx];
-                        app.palette_row = c / 16; app.palette_col = c % 16;
-                    }
-                }
-                Tab::Themes => { if app.theme_idx < 5 { app.theme_idx += 1; } }
-                Tab::Aliases => {
-                    let len = app.alias_list().len();
-                    if len > 0 && app.alias_idx + 1 < len { app.alias_idx += 1; }
-                }
-            },
-            "LEFT" => match app.tab {
-                Tab::Colors => { if app.palette_col > 0 { app.palette_col -= 1; } }
-                Tab::Aliases => { if app.alias_tab > 0 { app.alias_tab -= 1; app.alias_idx = 0; } }
-                _ => {}
-            },
-            "RIGHT" => match app.tab {
-                Tab::Colors => { if app.palette_col < 15 { app.palette_col += 1; } }
-                Tab::Aliases => { if app.alias_tab < 3 { app.alias_tab += 1; app.alias_idx = 0; } }
-                _ => {}
-            },
-            "S-UP" => { if app.tab == Tab::Colors && app.palette_row > 0 { app.palette_row -= 1; } }
-            "S-DOWN" => { if app.tab == Tab::Colors && app.palette_row < 15 { app.palette_row += 1; } }
-            "ENTER" => match app.tab {
-                Tab::Colors => { app.colors[app.color_idx] = app.palette_idx(); app.dirty = true; }
-                Tab::Themes => { app.colors = THEMES[app.theme_idx]; app.dirty = true; }
-                _ => {}
-            },
-            "C-D" | "DEL" => {
-                if app.tab == Tab::Aliases {
-                    let list = app.alias_list();
-                    if let Some((key, _)) = list.get(app.alias_idx) {
-                        let key = key.clone();
-                        match app.alias_tab {
-                            0 => { app.nicks.remove(&key); }
-                            1 => { app.gnicks.remove(&key); }
-                            2 => { app.abbrevs.remove(&key); }
-                            3 => { app.bookmarks.remove(&key); }
-                            _ => {}
-                        }
-                        app.dirty = true;
-                        let len = app.alias_list().len();
-                        if app.alias_idx >= len && len > 0 { app.alias_idx = len - 1; }
-                    }
-                }
+            "RESIZE" => {
+                let (cols, rows) = Crust::terminal_size();
+                let split = 25u16;
+                let lw = split - 1;
+                let rx = split + 3;
+                let rw = cols.saturating_sub(rx).saturating_sub(1);
+                app.top = Pane::new(1, 1, cols, 1, 0, 236);
+                app.left = Pane::new(2, 3, lw, rows - 4, 255, 0);
+                app.right = Pane::new(rx, 3, rw, rows - 4, 252, 0);
+                app.status = Pane::new(1, rows, cols, 1, 252, 236);
+                app.left.border = true;
+                app.right.border = true;
+                Crust::clear_screen();
+                app.left.border_refresh();
+                app.right.border_refresh();
+                app.render();
             }
             _ => {}
         }
