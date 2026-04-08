@@ -21,6 +21,9 @@ const THEMES: [[u8; 16]; 6] = [
     [148, 148, 81, 208, 148, 81, 141, 228, 81, 197, 141, 208, 245, 7, 245, 240],
 ];
 
+#[derive(PartialEq, Clone, Copy)]
+enum Tab { Colors, Themes, Aliases }
+
 struct App {
     colors: [u8; 16],
     nicks: BTreeMap<String, String>,
@@ -30,8 +33,8 @@ struct App {
     color_idx: usize,
     palette_row: u8,
     palette_col: u8,
-    tab: usize,          // 0=colors, 1=themes, 2=aliases
-    alias_tab: usize,    // 0=nicks, 1=gnicks, 2=abbrevs, 3=bookmarks
+    tab: Tab,
+    alias_tab: usize,
     alias_idx: usize,
     theme_idx: usize,
     dirty: bool,
@@ -46,7 +49,7 @@ impl App {
             colors: THEMES[0], nicks: BTreeMap::new(), gnicks: BTreeMap::new(),
             abbrevs: BTreeMap::new(), bookmarks: BTreeMap::new(),
             color_idx: 0, palette_row: 0, palette_col: 0,
-            tab: 0, alias_tab: 0, alias_idx: 0, theme_idx: 0,
+            tab: Tab::Colors, alias_tab: 0, alias_idx: 0, theme_idx: 0,
             dirty: false, config_path,
         };
         app.load_config();
@@ -115,47 +118,46 @@ impl App {
     }
 }
 
-fn build_prompt_preview(app: &App) -> String {
-    format!("{}@{}: {} ({}) {} echo hello",
+fn prompt_preview(app: &App) -> String {
+    format!("  {}@{}: {} ({}) {} {}",
         style::fg("user", app.colors[0]),
         style::fg("host", app.colors[1]),
         style::fg("~/projects/bare", app.colors[2]),
         style::fg("main", app.colors[11]),
         style::fg(">", app.colors[3]),
+        style::fg("echo hello", app.colors[4]),
     )
 }
 
-fn build_color_list(app: &App) -> String {
-    let mut lines = Vec::new();
-    for (i, name) in COLOR_NAMES.iter().enumerate() {
+fn color_list_text(app: &App) -> String {
+    COLOR_NAMES.iter().enumerate().map(|(i, name)| {
         let c = app.colors[i];
         let marker = if i == app.color_idx { ">" } else { " " };
         let sample = style::fg("sample", c);
-        let line = if i == app.color_idx {
+        if i == app.color_idx {
             format!("{} {:<10} {:>3}  {}", style::bold(marker), style::bold(name), c, sample)
         } else {
             format!("{} {:<10} {:>3}  {}", marker, name, c, sample)
-        };
-        lines.push(line);
-    }
-    lines.join("\n")
+        }
+    }).collect::<Vec<_>>().join("\n")
 }
 
-fn build_palette(app: &App) -> String {
-    let mut lines = Vec::new();
+fn palette_text(app: &App) -> String {
     let sel = app.palette_idx();
     let cur = app.colors[app.color_idx];
+    let mut lines = Vec::new();
     for row in 0..16u8 {
         let mut line = String::new();
         for col in 0..16u8 {
             let idx = row * 16 + col;
             if idx == sel {
-                line += &format!("{}", style::fb(&format!("{:^3}", idx), 0, idx));
+                let fg: u8 = if idx < 8 || (idx >= 16 && idx < 52) { 15 } else { 0 };
+                line += &style::fb(&format!("{:^3}", idx), fg, idx);
             } else if idx == cur {
-                let fg = if idx < 8 { 15 } else { 0 };
-                line += &format!("{}", style::fb(" * ", fg, idx));
+                let fg: u8 = if idx < 8 || (idx >= 16 && idx < 52) { 15 } else { 0 };
+                line += &style::fb(" * ", fg, idx);
             } else {
-                line += &format!("{}", style::bg("   ", idx));
+                line += &style::bg("   ", idx);
             }
         }
         lines.push(line);
@@ -167,170 +169,158 @@ fn build_palette(app: &App) -> String {
     lines.join("\n")
 }
 
-fn build_themes(app: &App) -> String {
-    let mut lines = Vec::new();
-    for (i, name) in THEME_NAMES.iter().enumerate() {
+fn themes_text(app: &App) -> String {
+    THEME_NAMES.iter().enumerate().map(|(i, name)| {
         let marker = if i == app.theme_idx { ">" } else { " " };
         let mut swatches = String::new();
         for c in &THEMES[i][..12] {
-            swatches += &format!("{}", style::bg("  ", *c));
+            swatches += &style::bg("  ", *c);
         }
-        let line = if i == app.theme_idx {
+        if i == app.theme_idx {
             format!("{} {:<12} {}", marker, style::bold(name), swatches)
         } else {
             format!("{} {:<12} {}", marker, name, swatches)
-        };
-        lines.push(line);
-    }
-    lines.join("\n")
+        }
+    }).collect::<Vec<_>>().join("\n")
 }
 
-fn build_aliases(app: &App) -> String {
+fn aliases_text(app: &App) -> String {
     let list = app.alias_list();
-    if list.is_empty() {
-        return "  (no entries)".into();
-    }
-    let mut lines = Vec::new();
-    for (i, (k, v)) in list.iter().enumerate() {
+    if list.is_empty() { return "  (no entries)".into(); }
+    list.iter().enumerate().map(|(i, (k, v))| {
         let marker = if i == app.alias_idx { ">" } else { " " };
-        let line = if i == app.alias_idx {
+        if i == app.alias_idx {
             format!("{} {} = {}", marker, style::fg(&style::bold(k), 6), style::bold(v))
         } else {
             format!("{} {} = {}", marker, style::fg(k, 6), v)
-        };
-        lines.push(line);
-    }
-    lines.join("\n")
+        }
+    }).collect::<Vec<_>>().join("\n")
 }
 
 fn main() {
     Crust::init();
+    Crust::clear_screen();
     let mut app = App::new();
 
-    // Create panes
     let (w, h) = Crust::terminal_size();
-    let left_w = w * 2 / 5;
-    let right_w = w - left_w - 1;
+    // Layout: row 1 = title, row 2 = preview, rows 4..h-1 = content, row h = help
+    let left_w = (w * 2 / 5).min(35);
+    let right_x = left_w + 3;      // gap for border
+    let right_w = w - right_x;
 
-    // Title/preview pane (full width, top)
-    let mut title_pane = Pane::new(1, 1, w, 2, 255, 0);
-
-    // Left pane: color list
-    let mut left_pane = Pane::new(1, 4, left_w, h - 5, 255, 0);
+    let mut title_pane = Pane::new(1, 1, w, 1, 208, 0);
+    let mut preview_pane = Pane::new(1, 2, w, 1, 255, 0);
+    let content_y = 4u16;           // content starts here (border at y-1=3)
+    let content_h = h.saturating_sub(5);
+    let mut left_pane = Pane::new(1, content_y, left_w, content_h, 255, 0);
     left_pane.border = true;
-
-    // Right pane: palette/themes/aliases
-    let mut right_pane = Pane::new(left_w + 2, 4, right_w - 1, h - 5, 255, 0);
+    let mut right_pane = Pane::new(right_x, content_y, right_w, content_h, 255, 0);
     right_pane.border = true;
-
-    // Help bar (bottom)
     let mut help_pane = Pane::new(1, h, w, 1, 0, 245);
 
-    let tab_names = ["Colors+Palette", "Themes", "Aliases"];
-
     loop {
-        // Update title
-        let preview = build_prompt_preview(&app);
+        // Title
         let dirty = if app.dirty { " [modified]" } else { "" };
-        title_pane.set_text(&format!(" bareconf{}\n {}", dirty, preview));
-        title_pane.refresh();
+        title_pane.say(&format!(" bareconf{}", dirty));
+        preview_pane.say(&prompt_preview(&app));
 
-        // Update left pane
-        let ltitle = if app.tab == 0 {
-            format!(" {} ", style::bold("Colors"))
-        } else {
-            " Colors ".into()
-        };
-        left_pane.border = true;
-        left_pane.fg = if app.tab == 0 { 208 } else { 240 };
-        left_pane.set_text(&build_color_list(&app));
+        // Left pane: always shows color list
+        left_pane.fg = if app.tab == Tab::Colors { 208 } else { 240 };
+        left_pane.set_text(&color_list_text(&app));
         left_pane.border_refresh();
         left_pane.refresh();
 
-        // Update right pane
-        let (rtitle, rcontent) = match app.tab {
-            0 => {
-                let t = format!(" {} - c_{} ", style::bold("Palette"), COLOR_NAMES[app.color_idx]);
-                (t, build_palette(&app))
-            }
-            1 => {
-                (format!(" {} ", style::bold("Themes")), build_themes(&app))
-            }
-            2 => {
-                let tn = app.alias_tab_name();
-                (format!(" {} (Left/Right: switch) ", style::bold(tn)), build_aliases(&app))
-            }
-            _ => (String::new(), String::new()),
+        // Right pane: depends on tab
+        let rtitle = match app.tab {
+            Tab::Colors => format!(" Palette: c_{} ", COLOR_NAMES[app.color_idx]),
+            Tab::Themes => " Themes ".into(),
+            Tab::Aliases => format!(" {} (Left/Right) ", app.alias_tab_name()),
         };
-        right_pane.fg = if app.tab != 0 { 208 } else { 240 };
+        right_pane.fg = if app.tab != Tab::Colors { 208 } else { 240 };
+        let rcontent = match app.tab {
+            Tab::Colors => palette_text(&app),
+            Tab::Themes => themes_text(&app),
+            Tab::Aliases => aliases_text(&app),
+        };
         right_pane.set_text(&rcontent);
         right_pane.border_refresh();
         right_pane.refresh();
 
-        // Print border titles manually
-        crust::cursor::Cursor::set(left_pane.x, left_pane.y - 1);
-        let lfg = if app.tab == 0 { 208u8 } else { 240u8 };
-        let rfg = if app.tab != 0 { 208u8 } else { 240u8 };
-        print!("{}", style::fg(&ltitle, lfg));
-        crust::cursor::Cursor::set(right_pane.x, right_pane.y - 1);
+        // Overlay border titles
+        let lfg = if app.tab == Tab::Colors { 208u8 } else { 240 };
+        let rfg = if app.tab != Tab::Colors { 208u8 } else { 240 };
+        crust::cursor::Cursor::set(left_pane.x + 1, content_y - 1);
+        print!("{}", style::fg(&format!(" {} ", if app.tab == Tab::Colors { style::bold("Colors") } else { "Colors".into() }), lfg));
+        crust::cursor::Cursor::set(right_pane.x + 1, content_y - 1);
         print!("{}", style::fg(&rtitle, rfg));
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
         // Help bar
-        let tabs: Vec<String> = tab_names.iter().enumerate().map(|(i, n)| {
-            if i == app.tab { style::reverse(&format!(" {} ", n)) } else { format!(" {} ", n) }
+        let tabs = [("Colors", Tab::Colors), ("Themes", Tab::Themes), ("Aliases", Tab::Aliases)];
+        let tab_str: Vec<String> = tabs.iter().map(|(n, t)| {
+            if app.tab == *t { style::reverse(&format!(" {} ", n)) } else { format!(" {} ", n) }
         }).collect();
-        help_pane.set_text(&format!(" {}  Arrows:move Enter:apply s:save q:quit", tabs.join(" ")));
-        help_pane.refresh();
+        help_pane.say(&format!(" {}  Up/Down:select  Enter:apply  s:save  q:quit", tab_str.join(" ")));
 
         // Input
-        let key = match Input::getchr(None) {
-            Some(k) => k,
-            None => continue,
-        };
+        let key = match Input::getchr(None) { Some(k) => k, None => continue };
         match key.as_str() {
-            "q" | "ESC" => {
-                if app.dirty { app.save_config(); }
-                break;
-            }
+            "q" | "ESC" => { if app.dirty { app.save_config(); } break; }
             "s" => { app.save_config(); app.dirty = false; }
-            "TAB" => { app.tab = (app.tab + 1) % 3; }
-            "S-TAB" => { app.tab = if app.tab == 0 { 2 } else { app.tab - 1 }; }
+            "TAB" => {
+                app.tab = match app.tab {
+                    Tab::Colors => Tab::Themes, Tab::Themes => Tab::Aliases, Tab::Aliases => Tab::Colors,
+                };
+            }
+            "S-TAB" => {
+                app.tab = match app.tab {
+                    Tab::Colors => Tab::Aliases, Tab::Themes => Tab::Colors, Tab::Aliases => Tab::Themes,
+                };
+            }
             "UP" => match app.tab {
-                0 => { if app.color_idx > 0 { app.color_idx -= 1; let c = app.colors[app.color_idx]; app.palette_row = c / 16; app.palette_col = c % 16; } }
-                1 => { if app.theme_idx > 0 { app.theme_idx -= 1; } }
-                2 => { if app.alias_idx > 0 { app.alias_idx -= 1; } }
-                _ => {}
+                Tab::Colors => {
+                    if app.color_idx > 0 {
+                        app.color_idx -= 1;
+                        let c = app.colors[app.color_idx];
+                        app.palette_row = c / 16; app.palette_col = c % 16;
+                    }
+                }
+                Tab::Themes => { if app.theme_idx > 0 { app.theme_idx -= 1; } }
+                Tab::Aliases => { if app.alias_idx > 0 { app.alias_idx -= 1; } }
             },
             "DOWN" => match app.tab {
-                0 => { if app.color_idx < 15 { app.color_idx += 1; let c = app.colors[app.color_idx]; app.palette_row = c / 16; app.palette_col = c % 16; } }
-                1 => { if app.theme_idx < 5 { app.theme_idx += 1; } }
-                2 => { let len = app.alias_list().len(); if len > 0 && app.alias_idx + 1 < len { app.alias_idx += 1; } }
-                _ => {}
+                Tab::Colors => {
+                    if app.color_idx < 15 {
+                        app.color_idx += 1;
+                        let c = app.colors[app.color_idx];
+                        app.palette_row = c / 16; app.palette_col = c % 16;
+                    }
+                }
+                Tab::Themes => { if app.theme_idx < 5 { app.theme_idx += 1; } }
+                Tab::Aliases => {
+                    let len = app.alias_list().len();
+                    if len > 0 && app.alias_idx + 1 < len { app.alias_idx += 1; }
+                }
             },
             "LEFT" => match app.tab {
-                0 => { if app.palette_col > 0 { app.palette_col -= 1; } }
-                2 => { if app.alias_tab > 0 { app.alias_tab -= 1; app.alias_idx = 0; } }
+                Tab::Colors => { if app.palette_col > 0 { app.palette_col -= 1; } }
+                Tab::Aliases => { if app.alias_tab > 0 { app.alias_tab -= 1; app.alias_idx = 0; } }
                 _ => {}
             },
             "RIGHT" => match app.tab {
-                0 => { if app.palette_col < 15 { app.palette_col += 1; } }
-                2 => { if app.alias_tab < 3 { app.alias_tab += 1; app.alias_idx = 0; } }
+                Tab::Colors => { if app.palette_col < 15 { app.palette_col += 1; } }
+                Tab::Aliases => { if app.alias_tab < 3 { app.alias_tab += 1; app.alias_idx = 0; } }
                 _ => {}
             },
-            "S-UP" => {
-                if app.tab == 0 && app.palette_row > 0 { app.palette_row -= 1; }
-            }
-            "S-DOWN" => {
-                if app.tab == 0 && app.palette_row < 15 { app.palette_row += 1; }
-            }
+            "S-UP" => { if app.tab == Tab::Colors && app.palette_row > 0 { app.palette_row -= 1; } }
+            "S-DOWN" => { if app.tab == Tab::Colors && app.palette_row < 15 { app.palette_row += 1; } }
             "ENTER" => match app.tab {
-                0 => { app.colors[app.color_idx] = app.palette_idx(); app.dirty = true; }
-                1 => { app.colors = THEMES[app.theme_idx]; app.dirty = true; }
+                Tab::Colors => { app.colors[app.color_idx] = app.palette_idx(); app.dirty = true; }
+                Tab::Themes => { app.colors = THEMES[app.theme_idx]; app.dirty = true; }
                 _ => {}
             },
-            "C-D" => {
-                if app.tab == 2 {
+            "C-D" | "DEL" => {
+                if app.tab == Tab::Aliases {
                     let list = app.alias_list();
                     if let Some((key, _)) = list.get(app.alias_idx) {
                         let key = key.clone();

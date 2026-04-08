@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a1a2e"/>
+      <stop offset="100%" style="stop-color:#0a0a14"/>
+    </linearGradient>
+    <linearGradient id="conf" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#51afef"/>
+      <stop offset="100%" style="stop-color:#2e7cbf"/>
+    </linearGradient>
+  </defs>
+  <style>
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 0.9; } }
+    .gear { animation: spin 8s linear infinite; transform-origin: 128px 100px; }
+    .swatch-pulse { animation: pulse 2.5s ease-in-out infinite; }
+  </style>
+  <circle cx="128" cy="128" r="120" fill="url(#bg)" stroke="url(#conf)" stroke-width="3"/>
+  <!-- Gear icon -->
+  <g class="gear">
+    <circle cx="128" cy="100" r="20" fill="none" stroke="#51afef" stroke-width="3"/>
+    <circle cx="128" cy="100" r="8" fill="#51afef" opacity="0.5"/>
+    <!-- Gear teeth -->
+    <rect x="124" y="74" width="8" height="10" rx="2" fill="#51afef"/>
+    <rect x="124" y="116" width="8" height="10" rx="2" fill="#51afef"/>
+    <rect x="102" y="96" width="10" height="8" rx="2" fill="#51afef"/>
+    <rect x="144" y="96" width="10" height="8" rx="2" fill="#51afef"/>
+    <rect x="108" y="78" width="8" height="8" rx="2" fill="#51afef" transform="rotate(-45 112 82)"/>
+    <rect x="140" y="78" width="8" height="8" rx="2" fill="#51afef" transform="rotate(45 144 82)"/>
+    <rect x="108" y="112" width="8" height="8" rx="2" fill="#51afef" transform="rotate(45 112 116)"/>
+    <rect x="140" y="112" width="8" height="8" rx="2" fill="#51afef" transform="rotate(-45 144 116)"/>
+  </g>
+  <!-- Color palette row -->
+  <g class="swatch-pulse">
+    <rect x="56" y="140" width="12" height="12" rx="2" fill="#e55"/>
+    <rect x="74" y="140" width="12" height="12" rx="2" fill="#4c4"/>
+    <rect x="92" y="140" width="12" height="12" rx="2" fill="#51afef"/>
+    <rect x="110" y="140" width="12" height="12" rx="2" fill="#e2b714"/>
+    <rect x="128" y="140" width="12" height="12" rx="2" fill="#f74c00"/>
+    <rect x="146" y="140" width="12" height="12" rx="2" fill="#a8e"/>
+    <rect x="164" y="140" width="12" height="12" rx="2" fill="#f80"/>
+    <rect x="182" y="140" width="12" height="12" rx="2" fill="#77d"/>
+  </g>
+  <!-- Slider bars -->
+  <rect x="60" y="162" width="136" height="3" rx="1" fill="#333"/>
+  <circle cx="110" cy="163" r="5" fill="#51afef" opacity="0.8"/>
+  <rect x="60" y="172" width="136" height="3" rx="1" fill="#333"/>
+  <circle cx="150" cy="173" r="5" fill="#4c4" opacity="0.8"/>
+  <!-- Label -->
+  <text x="128" y="206" font-family="monospace" font-size="20" font-weight="bold" fill="url(#conf)" text-anchor="middle" letter-spacing="1">bareconf</text>
+  <text x="128" y="224" font-family="monospace" font-size="8" fill="#888" text-anchor="middle">TUI config for bare</text>
+</svg>
