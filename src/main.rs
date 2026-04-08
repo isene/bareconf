@@ -219,9 +219,17 @@ impl App {
             };
             let arrow_l = if selected { "\u{25C0} " } else { "  " };
             let arrow_r = if selected { " \u{25B6}" } else { "  " };
+            // Pad label manually with dots or spaces AFTER styling to avoid
+            // crust stripping trailing spaces from underlined text
+            let styled_label = if selected {
+                let name = &item.label;
+                let pad = 16usize.saturating_sub(name.len());
+                format!("{}{}", style::underline(name), " ".repeat(pad))
+            } else {
+                label.clone()
+            };
             let line = format!("  {}{}{}{}",
-                if selected { style::underline(&label) } else { label.clone() },
-                arrow_l, value_str, arrow_r);
+                styled_label, arrow_l, value_str, arrow_r);
             lines.push(line);
         }
 
