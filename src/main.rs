@@ -23,7 +23,7 @@ const THEMES: [[u8; 16]; 6] = [
 ];
 
 #[derive(Clone)]
-enum ItemKind { Color(usize), Theme, Alias(String, String) }
+enum ItemKind { Color(usize), Theme, Bool(&'static str, bool), Alias(String, String) }
 
 struct Category {
     name: String,
@@ -79,6 +79,7 @@ impl App {
         app.right.border = true;
         app.load_config();
         app.build_categories();
+        app.load_bool_settings();
         app
     }
 
@@ -106,6 +107,7 @@ impl App {
                         }
                     }
                 }
+                // Boolean settings are loaded after build_categories
             }
         }
     }
@@ -119,7 +121,35 @@ impl App {
         for (i, n) in COLOR_NAMES.iter().enumerate() {
             out += &format!("c_{} = {}\n", n, self.colors[i]);
         }
+        // Save boolean settings
+        for cat in &self.categories {
+            for item in &cat.items {
+                if let ItemKind::Bool(key, val) = &item.kind {
+                    out += &format!("{} = {}\n", key, if *val { "true" } else { "false" });
+                }
+            }
+        }
         let _ = std::fs::write(&self.config_path, out);
+    }
+
+    fn load_bool_settings(&mut self) {
+        let content = match std::fs::read_to_string(&self.config_path) {
+            Ok(c) => c, Err(_) => return,
+        };
+        for line in content.lines() {
+            let line = line.trim();
+            if let Some((key, val)) = line.split_once('=') {
+                let (key, val) = (key.trim(), val.trim());
+                let bval = val == "true" || val == "1";
+                for cat in &mut self.categories {
+                    for item in &mut cat.items {
+                        if let ItemKind::Bool(k, ref mut v) = item.kind {
+                            if k == key { *v = bval; }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn build_categories(&mut self) {
@@ -139,6 +169,13 @@ impl App {
             },
         ];
         // Alias categories
+        cats.push(Category { name: "Settings".into(), items: vec![
+            Item { label: "Show tips".into(), kind: ItemKind::Bool("show_tips", true) },
+            Item { label: "Auto-correct".into(), kind: ItemKind::Bool("auto_correct", false) },
+            Item { label: "Auto-pair".into(), kind: ItemKind::Bool("auto_pair", true) },
+            Item { label: "Right prompt".into(), kind: ItemKind::Bool("rprompt", true) },
+        ]});
+
         let mut nick_items: Vec<Item> = self.nicks.iter()
             .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("nick".into(), v.clone()) }).collect();
         if nick_items.is_empty() { nick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("nick".into(), String::new()) }); }
@@ -205,25 +242,39 @@ impl App {
         for (i, item) in cat.items.iter().enumerate() {
             let selected = i == self.item_index;
             let label = format!("{:<18}", item.label);
-            let value_str = match &item.kind {
+
+            let line = match &item.kind {
                 ItemKind::Color(ci) => {
                     let c = self.colors[*ci];
                     let swatch = style::fg("\u{2588}\u{2588}\u{2588}", c);
-                    format!("{} {:>3}", swatch, c)
+                    let val = format!("{} {:>3}", swatch, c);
+                    let al = if selected { "\u{25C0} " } else { "  " };
+                    let ar = if selected { " \u{25B6}" } else { "  " };
+                    format!("  {}{}{}{}",
+                        if selected { style::underline(&label) } else { label }, al, val, ar)
                 }
                 ItemKind::Theme => {
-                    style::fg(THEME_NAMES[self.theme_idx], 220)
+                    let val = style::fg(THEME_NAMES[self.theme_idx], 220);
+                    let al = if selected { "\u{25C0} " } else { "  " };
+                    let ar = if selected { " \u{25B6}" } else { "  " };
+                    format!("  {}{}{}{}",
+                        if selected { style::underline(&label) } else { label }, al, val, ar)
+                }
+                ItemKind::Bool(_, val) => {
+                    let display = if *val { style::fg("ON", 82) } else { style::fg("OFF", 196) };
+                    let al = if selected { "\u{25C0} " } else { "  " };
+                    let ar = if selected { " \u{25B6}" } else { "  " };
+                    format!("  {}{}{}{}",
+                        if selected { style::underline(&label) } else { label }, al, display, ar)
                 }
                 ItemKind::Alias(_, val) => {
-                    if val.is_empty() { style::fg("-", 245) } else { val.clone() }
+                    // Plain list, no arrows or underlines
+                    let marker = if selected { "> " } else { "  " };
+                    let v = if val.is_empty() { style::fg("-", 245) } else { val.clone() };
+                    let n = if selected { style::bold(&item.label) } else { item.label.clone() };
+                    format!("{}{} = {}", marker, style::fg(&n, 6), v)
                 }
             };
-
-            let arrow_l = if selected { "\u{25C0} " } else { "  " };
-            let arrow_r = if selected { " \u{25B6}" } else { "  " };
-            let line = format!("  {}{}{}{}",
-                if selected { style::underline(&label) } else { label },
-                arrow_l, value_str, arrow_r);
             lines.push(line);
         }
 
@@ -284,9 +335,9 @@ impl App {
     }
 
     fn next_value(&mut self) {
-        let Some(cat) = self.categories.get(self.cat_index) else { return };
-        let Some(item) = cat.items.get(self.item_index) else { return };
-        match &item.kind {
+        let Some(cat) = self.categories.get_mut(self.cat_index) else { return };
+        let Some(item) = cat.items.get_mut(self.item_index) else { return };
+        match &mut item.kind {
             ItemKind::Color(ci) => {
                 self.colors[*ci] = self.colors[*ci].wrapping_add(1);
                 self.dirty = true;
@@ -296,14 +347,18 @@ impl App {
                 self.colors = THEMES[self.theme_idx];
                 self.dirty = true;
             }
+            ItemKind::Bool(_, val) => {
+                *val = !*val;
+                self.dirty = true;
+            }
             _ => {}
         }
     }
 
     fn prev_value(&mut self) {
-        let Some(cat) = self.categories.get(self.cat_index) else { return };
-        let Some(item) = cat.items.get(self.item_index) else { return };
-        match &item.kind {
+        let Some(cat) = self.categories.get_mut(self.cat_index) else { return };
+        let Some(item) = cat.items.get_mut(self.item_index) else { return };
+        match &mut item.kind {
             ItemKind::Color(ci) => {
                 self.colors[*ci] = self.colors[*ci].wrapping_sub(1);
                 self.dirty = true;
@@ -311,6 +366,10 @@ impl App {
             ItemKind::Theme => {
                 self.theme_idx = (self.theme_idx + THEME_NAMES.len() - 1) % THEME_NAMES.len();
                 self.colors = THEMES[self.theme_idx];
+                self.dirty = true;
+            }
+            ItemKind::Bool(_, val) => {
+                *val = !*val;
                 self.dirty = true;
             }
             _ => {}
