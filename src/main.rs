@@ -132,12 +132,11 @@ fn prompt_preview(app: &App) -> String {
 fn color_list_text(app: &App) -> String {
     COLOR_NAMES.iter().enumerate().map(|(i, name)| {
         let c = app.colors[i];
-        let marker = if i == app.color_idx { ">" } else { " " };
         let sample = style::fg("sample", c);
         if i == app.color_idx {
-            format!("{} {:<10} {:>3}  {}", style::bold(marker), style::bold(name), c, sample)
+            format!("  {} {:<10}{:>3}  {}", style::bold(">"), style::bold(name), c, sample)
         } else {
-            format!("{} {:<10} {:>3}  {}", marker, name, c, sample)
+            format!("    {:<10}{:>3}  {}", name, c, sample)
         }
     }).collect::<Vec<_>>().join("\n")
 }
@@ -169,17 +168,23 @@ fn palette_text(app: &App) -> String {
     lines.join("\n")
 }
 
-fn themes_text(app: &App) -> String {
+fn themes_text(app: &App, max_w: u16) -> String {
+    // Calculate how many swatch chars we can fit
+    // Each line: 2 (marker) + 12 (name) + swatches
+    let avail = (max_w as usize).saturating_sub(16);
+    let swatch_w = (avail / 12).max(1).min(3);
+
     THEME_NAMES.iter().enumerate().map(|(i, name)| {
         let marker = if i == app.theme_idx { ">" } else { " " };
+        let swatch_str: String = " ".repeat(swatch_w);
         let mut swatches = String::new();
         for c in &THEMES[i][..12] {
-            swatches += &style::bg("  ", *c);
+            swatches += &style::bg(&swatch_str, *c);
         }
         if i == app.theme_idx {
-            format!("{} {:<12} {}", marker, style::bold(name), swatches)
+            format!("{} {:<12}{}", marker, style::bold(name), swatches)
         } else {
-            format!("{} {:<12} {}", marker, name, swatches)
+            format!("{} {:<12}{}", marker, name, swatches)
         }
     }).collect::<Vec<_>>().join("\n")
 }
@@ -241,7 +246,7 @@ fn main() {
         right_pane.fg = if app.tab != Tab::Colors { 208 } else { 240 };
         let rcontent = match app.tab {
             Tab::Colors => palette_text(&app),
-            Tab::Themes => themes_text(&app),
+            Tab::Themes => themes_text(&app, right_w),
             Tab::Aliases => aliases_text(&app),
         };
         right_pane.set_text(&rcontent);
