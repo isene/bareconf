@@ -204,15 +204,17 @@ fn main() {
 
     let (w, h) = Crust::terminal_size();
     // Layout: row 1 = title, row 2 = preview, rows 4..h-1 = content, row h = help
+    // Borders are drawn OUTSIDE pane area, so panes need 1px margin from edges
     let left_w = (w * 2 / 5).min(35);
-    let right_x = left_w + 3;      // gap for border
-    let right_w = w - right_x;
+    let left_x = 2u16;              // border at x=1 (left edge)
+    let right_x = left_x + left_w + 3; // gap for left border-right + space + right border-left
+    let right_w = w - right_x - 1;  // leave room for right border
 
     let mut title_pane = Pane::new(1, 1, w, 1, 208, 0);
     let mut preview_pane = Pane::new(1, 2, w, 1, 255, 0);
     let content_y = 4u16;           // content starts here (border at y-1=3)
-    let content_h = h.saturating_sub(5);
-    let mut left_pane = Pane::new(1, content_y, left_w, content_h, 255, 0);
+    let content_h = h.saturating_sub(6);
+    let mut left_pane = Pane::new(left_x, content_y, left_w, content_h, 255, 0);
     left_pane.border = true;
     let mut right_pane = Pane::new(right_x, content_y, right_w, content_h, 255, 0);
     right_pane.border = true;
@@ -249,9 +251,9 @@ fn main() {
         // Overlay border titles
         let lfg = if app.tab == Tab::Colors { 208u8 } else { 240 };
         let rfg = if app.tab != Tab::Colors { 208u8 } else { 240 };
-        crust::cursor::Cursor::set(left_pane.x + 1, content_y - 1);
+        crust::cursor::Cursor::set(left_pane.x, content_y - 1);
         print!("{}", style::fg(&format!(" {} ", if app.tab == Tab::Colors { style::bold("Colors") } else { "Colors".into() }), lfg));
-        crust::cursor::Cursor::set(right_pane.x + 1, content_y - 1);
+        crust::cursor::Cursor::set(right_pane.x, content_y - 1);
         print!("{}", style::fg(&rtitle, rfg));
         std::io::Write::flush(&mut std::io::stdout()).ok();
 
