@@ -197,13 +197,14 @@ impl App {
     fn render_items(&mut self) {
         let Some(cat) = self.categories.get(self.cat_index) else { return };
         let mut lines = Vec::new();
+
         lines.push(style::fg(&style::bold(&cat.name), 81));
         lines.push(style::fg(&"\u{2500}".repeat(40), 245));
         lines.push(String::new());
 
         for (i, item) in cat.items.iter().enumerate() {
             let selected = i == self.item_index;
-            let label = format!("{:<16}", item.label);
+            let label = format!("{:<18}", item.label);
             let value_str = match &item.kind {
                 ItemKind::Color(ci) => {
                     let c = self.colors[*ci];
@@ -217,52 +218,49 @@ impl App {
                     if val.is_empty() { style::fg("-", 245) } else { val.clone() }
                 }
             };
+
             let arrow_l = if selected { "\u{25C0} " } else { "  " };
             let arrow_r = if selected { " \u{25B6}" } else { "  " };
-            // Pad label manually with dots or spaces AFTER styling to avoid
-            // crust stripping trailing spaces from underlined text
-            let styled_label = if selected {
-                let name = &item.label;
-                let pad = 16usize.saturating_sub(name.len());
-                format!("{}{}", style::underline(name), " ".repeat(pad))
-            } else {
-                label.clone()
-            };
             let line = format!("  {}{}{}{}",
-                styled_label, arrow_l, value_str, arrow_r);
+                if selected { style::underline(&label) } else { label },
+                arrow_l, value_str, arrow_r);
             lines.push(line);
         }
 
         // Color palette preview for color items
         if let Some(item) = cat.items.get(self.item_index) {
-            if let ItemKind::Color(ci) = &item.kind {
-                let current = self.colors[*ci];
+            if let ItemKind::Color(_) = &item.kind {
                 lines.push(String::new());
                 lines.push(style::fg("Color palette:", 245));
+                // 16 rows of 16 colors, matching crush exactly
                 for row in 0..16u8 {
-                    let mut pl = String::from("  ");
+                    let mut palette_line = String::from("  ");
                     for col in 0..16u8 {
                         let c = row * 16 + col;
-                        pl.push_str(&style::fg("\u{2588}", c));
+                        palette_line.push_str(&style::fg("\u{2588}", c));
                     }
-                    lines.push(pl);
+                    lines.push(palette_line);
                 }
             }
         }
 
-        // Theme swatches
+        // Theme preview, matching crush
         if let Some(item) = cat.items.get(self.item_index) {
             if let ItemKind::Theme = &item.kind {
+                let t = THEME_NAMES[self.theme_idx];
+                let colors = &THEMES[self.theme_idx];
                 lines.push(String::new());
-                for (i, name) in THEME_NAMES.iter().enumerate() {
-                    let marker = if i == self.theme_idx { "> " } else { "  " };
-                    let mut swatches = String::new();
-                    for c in &THEMES[i] {
-                        swatches.push_str(&style::fg("\u{2588}\u{2588}", *c));
-                    }
-                    let n = if i == self.theme_idx { style::bold(name) } else { name.to_string() };
-                    lines.push(format!("{}{:<12} {}", marker, n, swatches));
-                }
+                lines.push(style::fg(&format!("Theme: {}", t), 220));
+                lines.push(String::new());
+                lines.push(format!("  {} {} {}",
+                    style::fg("user", colors[0]), style::fg("@", 245),
+                    style::fg("host", colors[1])));
+                lines.push(format!("  {} {}",
+                    style::fg("~/projects", colors[2]),
+                    style::fg("(main)", colors[11])));
+                lines.push(format!("  {} {}",
+                    style::fg(">", colors[3]),
+                    style::fg("ls -la | grep foo", colors[4])));
             }
         }
 
