@@ -219,9 +219,10 @@ impl App {
             };
             let arrow_l = if selected { "\u{25C0} " } else { "  " };
             let arrow_r = if selected { " \u{25B6}" } else { "  " };
-            let line = format!("  {}{}{}{}",
-                if selected { style::underline(&label) } else { label },
-                arrow_l, value_str, arrow_r);
+            let marker = if selected { "> " } else { "  " };
+            let styled_label = if selected { style::bold(&label) } else { label };
+            let line = format!("{}{}{}{}{}",
+                marker, styled_label, arrow_l, value_str, arrow_r);
             lines.push(line);
         }
 
@@ -239,7 +240,7 @@ impl App {
                             let fg: u8 = if c < 8 || (c >= 16 && c < 52) { 15 } else { 0 };
                             pl.push_str(&style::fb(&format!("{:^3}", c), fg, c));
                         } else {
-                            pl.push_str(&style::fg("\u{2588}", c));
+                            pl.push_str(&style::bg("   ", c));
                         }
                     }
                     lines.push(pl);
