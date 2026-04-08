@@ -219,10 +219,9 @@ impl App {
             };
             let arrow_l = if selected { "\u{25C0} " } else { "  " };
             let arrow_r = if selected { " \u{25B6}" } else { "  " };
-            let marker = if selected { "> " } else { "  " };
-            let styled_label = if selected { style::bold(&label) } else { label };
-            let line = format!("{}{}{}{}{}",
-                marker, styled_label, arrow_l, value_str, arrow_r);
+            let line = format!("  {}{}{}{}",
+                if selected { style::underline(&label) } else { label.clone() },
+                arrow_l, value_str, arrow_r);
             lines.push(line);
         }
 
@@ -231,17 +230,12 @@ impl App {
             if let ItemKind::Color(ci) = &item.kind {
                 let current = self.colors[*ci];
                 lines.push(String::new());
-                lines.push(style::fg(&format!("Palette (current: {})", current), 245));
+                lines.push(style::fg("Color palette:", 245));
                 for row in 0..16u8 {
                     let mut pl = String::from("  ");
                     for col in 0..16u8 {
                         let c = row * 16 + col;
-                        if c == current {
-                            let fg: u8 = if c < 8 || (c >= 16 && c < 52) { 15 } else { 0 };
-                            pl.push_str(&style::fb(&format!("{:^3}", c), fg, c));
-                        } else {
-                            pl.push_str(&style::bg("   ", c));
-                        }
+                        pl.push_str(&style::fg("\u{2588}", c));
                     }
                     lines.push(pl);
                 }
@@ -255,8 +249,8 @@ impl App {
                 for (i, name) in THEME_NAMES.iter().enumerate() {
                     let marker = if i == self.theme_idx { "> " } else { "  " };
                     let mut swatches = String::new();
-                    for c in &THEMES[i][..12] {
-                        swatches.push_str(&style::fg("\u{2588}", *c));
+                    for c in &THEMES[i] {
+                        swatches.push_str(&style::fg("\u{2588}\u{2588}", *c));
                     }
                     let n = if i == self.theme_idx { style::bold(name) } else { name.to_string() };
                     lines.push(format!("{}{:<12} {}", marker, n, swatches));
