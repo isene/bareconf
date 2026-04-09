@@ -201,6 +201,7 @@ impl App {
             Item { label: "Auto-pair".into(), kind: ItemKind::Bool("auto_pair", true) },
             Item { label: "Right prompt".into(), kind: ItemKind::Bool("rprompt", true) },
             Item { label: "Git branch".into(), kind: ItemKind::Bool("show_git_branch", false) },
+            Item { label: "Git status fork".into(), kind: ItemKind::Bool("git_status_fork", true) },
             Item { label: "Fuzzy complete".into(), kind: ItemKind::Bool("completion_fuzzy", false) },
             Item { label: "Complete limit".into(), kind: ItemKind::Number("completion_limit", 10) },
             Item { label: "Slow cmd (sec)".into(), kind: ItemKind::Number("slow_command_threshold", 0) },
