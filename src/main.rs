@@ -3,23 +3,25 @@ use crust::style;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-const COLOR_NAMES: [&str; 16] = [
+const COLOR_NAMES: [&str; 18] = [
     "user", "host", "cwd", "prompt", "cmd", "nick", "gnick", "path",
     "switch", "bookmark", "colon", "git", "stamp", "tabsel", "tabopt", "suggest",
+    "user_root", "host_root",
 ];
-const COLOR_DESCS: [&str; 16] = [
+const COLOR_DESCS: [&str; 18] = [
     "Username", "Hostname", "Directory", "Prompt >", "Commands", "Nicks",
     "Gnicks", "Paths", "Switches", "Bookmarks", "Colon cmds", "Git branch",
     "Timestamps", "Tab select", "Tab options", "Suggestions",
+    "Root username", "Root hostname",
 ];
 const THEME_NAMES: [&str; 6] = ["default", "solarized", "dracula", "gruvbox", "nord", "monokai"];
-const THEMES: [[u8; 16]; 6] = [
-    [2, 2, 81, 208, 48, 6, 33, 3, 6, 5, 4, 208, 245, 7, 245, 240],
-    [64, 64, 37, 136, 33, 37, 33, 136, 37, 125, 33, 166, 245, 7, 245, 240],
-    [84, 84, 141, 212, 84, 117, 189, 228, 117, 212, 189, 215, 245, 7, 245, 240],
-    [142, 142, 214, 208, 142, 108, 109, 223, 108, 175, 109, 208, 245, 7, 245, 240],
-    [110, 110, 111, 173, 110, 110, 111, 222, 110, 139, 111, 173, 245, 7, 245, 240],
-    [148, 148, 81, 208, 148, 81, 141, 228, 81, 197, 141, 208, 245, 7, 245, 240],
+const THEMES: [[u8; 18]; 6] = [
+    [2, 2, 81, 208, 48, 6, 33, 3, 6, 5, 4, 208, 245, 7, 245, 240, 196, 196],
+    [64, 64, 37, 136, 33, 37, 33, 136, 37, 125, 33, 166, 245, 7, 245, 240, 196, 196],
+    [84, 84, 141, 212, 84, 117, 189, 228, 117, 212, 189, 215, 245, 7, 245, 240, 196, 196],
+    [142, 142, 214, 208, 142, 108, 109, 223, 108, 175, 109, 208, 245, 7, 245, 240, 196, 196],
+    [110, 110, 111, 173, 110, 110, 111, 222, 110, 139, 111, 173, 245, 7, 245, 240, 196, 196],
+    [148, 148, 81, 208, 148, 81, 141, 228, 81, 197, 141, 208, 245, 7, 245, 240, 196, 196],
 ];
 
 #[derive(Clone)]
@@ -41,7 +43,7 @@ struct App {
     left: Pane,
     right: Pane,
     status: Pane,
-    colors: [u8; 16],
+    colors: [u8; 18],
     nicks: BTreeMap<String, String>,
     gnicks: BTreeMap<String, String>,
     abbrevs: BTreeMap<String, String>,
@@ -158,12 +160,12 @@ impl App {
                 Item { label: "Theme".into(), kind: ItemKind::Theme },
             ]},
             Category { name: "Prompt Colors".into(), items:
-                (0..6).map(|i| Item {
+                [0, 1, 16, 17, 2, 3, 11].iter().map(|&i| Item {
                     label: COLOR_DESCS[i].into(), kind: ItemKind::Color(i),
                 }).collect(),
             },
             Category { name: "UI Colors".into(), items:
-                (6..16).map(|i| Item {
+                (4..16).map(|i| Item {
                     label: COLOR_DESCS[i].into(), kind: ItemKind::Color(i),
                 }).collect(),
             },
@@ -268,11 +270,8 @@ impl App {
                         if selected { style::underline(&label) } else { label }, al, display, ar)
                 }
                 ItemKind::Alias(_, val) => {
-                    // Plain list, no arrows or underlines
-                    let marker = if selected { "> " } else { "  " };
                     let v = if val.is_empty() { style::fg("-", 245) } else { val.clone() };
-                    let n = if selected { style::bold(&item.label) } else { item.label.clone() };
-                    format!("{}{} = {}", marker, style::fg(&n, 6), v)
+                    format!("  {} = {}", style::fg(&item.label, 6), v)
                 }
             };
             lines.push(line);
