@@ -25,7 +25,14 @@ const THEMES: [[u8; 18]; 6] = [
 ];
 
 #[derive(Clone)]
-enum ItemKind { Color(usize), Theme, Bool(&'static str, bool), Alias(String, String) }
+enum ItemKind {
+    Color(usize),
+    Theme,
+    Bool(&'static str, bool),
+    Number(&'static str, u64),
+    Choice(&'static str, Vec<String>, String),
+    Alias(String, String),
+}
 
 struct Category {
     name: String,
@@ -123,11 +130,20 @@ impl App {
         for (i, n) in COLOR_NAMES.iter().enumerate() {
             out += &format!("c_{} = {}\n", n, self.colors[i]);
         }
-        // Save boolean settings
+        // Save settings (booleans, numbers, choices)
         for cat in &self.categories {
             for item in &cat.items {
-                if let ItemKind::Bool(key, val) = &item.kind {
-                    out += &format!("{} = {}\n", key, if *val { "true" } else { "false" });
+                match &item.kind {
+                    ItemKind::Bool(key, val) => {
+                        out += &format!("{} = {}\n", key, if *val { "true" } else { "false" });
+                    }
+                    ItemKind::Number(key, val) => {
+                        out += &format!("{} = {}\n", key, val);
+                    }
+                    ItemKind::Choice(key, _, current) => {
+                        out += &format!("{} = {}\n", key, current);
+                    }
+                    _ => {}
                 }
             }
         }
@@ -142,11 +158,19 @@ impl App {
             let line = line.trim();
             if let Some((key, val)) = line.split_once('=') {
                 let (key, val) = (key.trim(), val.trim());
-                let bval = val == "true" || val == "1";
                 for cat in &mut self.categories {
                     for item in &mut cat.items {
-                        if let ItemKind::Bool(k, ref mut v) = item.kind {
-                            if k == key { *v = bval; }
+                        match &mut item.kind {
+                            ItemKind::Bool(k, ref mut v) => {
+                                if *k == key { *v = val == "true" || val == "1"; }
+                            }
+                            ItemKind::Number(k, ref mut v) => {
+                                if *k == key { if let Ok(n) = val.parse() { *v = n; } }
+                            }
+                            ItemKind::Choice(k, _, ref mut current) => {
+                                if *k == key { *current = val.to_string(); }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -176,6 +200,12 @@ impl App {
             Item { label: "Auto-correct".into(), kind: ItemKind::Bool("auto_correct", false) },
             Item { label: "Auto-pair".into(), kind: ItemKind::Bool("auto_pair", true) },
             Item { label: "Right prompt".into(), kind: ItemKind::Bool("rprompt", true) },
+            Item { label: "Git branch".into(), kind: ItemKind::Bool("show_git_branch", false) },
+            Item { label: "Fuzzy complete".into(), kind: ItemKind::Bool("completion_fuzzy", false) },
+            Item { label: "Complete limit".into(), kind: ItemKind::Number("completion_limit", 10) },
+            Item { label: "Slow cmd (sec)".into(), kind: ItemKind::Number("slow_command_threshold", 0) },
+            Item { label: "History dedup".into(), kind: ItemKind::Choice("history_dedup",
+                vec!["off".into(), "full".into(), "smart".into()], "smart".into()) },
         ]});
 
         let mut nick_items: Vec<Item> = self.nicks.iter()
@@ -269,6 +299,19 @@ impl App {
                     format!("  {}{}{}{}",
                         if selected { style::underline(&label) } else { label }, al, display, ar)
                 }
+                ItemKind::Number(_, val) => {
+                    let al = if selected { "\u{25C0} " } else { "  " };
+                    let ar = if selected { " \u{25B6}" } else { "  " };
+                    format!("  {}{}{}{}",
+                        if selected { style::underline(&label) } else { label }, al, val, ar)
+                }
+                ItemKind::Choice(_, _, current) => {
+                    let al = if selected { "\u{25C0} " } else { "  " };
+                    let ar = if selected { " \u{25B6}" } else { "  " };
+                    format!("  {}{}{}{}",
+                        if selected { style::underline(&label) } else { label },
+                        al, style::fg(current, 81), ar)
+                }
                 ItemKind::Alias(_, val) => {
                     let v = if val.is_empty() { style::fg("-", 245) } else { val.clone() };
                     format!("  {} = {}", style::fg(&item.label, 6), v)
@@ -346,8 +389,11 @@ impl App {
                 self.colors = THEMES[self.theme_idx];
                 self.dirty = true;
             }
-            ItemKind::Bool(_, val) => {
-                *val = !*val;
+            ItemKind::Bool(_, val) => { *val = !*val; self.dirty = true; }
+            ItemKind::Number(_, val) => { *val += 1; self.dirty = true; }
+            ItemKind::Choice(_, opts, current) => {
+                let idx = opts.iter().position(|o| o == current).unwrap_or(0);
+                *current = opts[(idx + 1) % opts.len()].clone();
                 self.dirty = true;
             }
             _ => {}
@@ -367,8 +413,11 @@ impl App {
                 self.colors = THEMES[self.theme_idx];
                 self.dirty = true;
             }
-            ItemKind::Bool(_, val) => {
-                *val = !*val;
+            ItemKind::Bool(_, val) => { *val = !*val; self.dirty = true; }
+            ItemKind::Number(_, val) => { *val = val.saturating_sub(1); self.dirty = true; }
+            ItemKind::Choice(_, opts, current) => {
+                let idx = opts.iter().position(|o| o == current).unwrap_or(0);
+                *current = opts[(idx + opts.len() - 1) % opts.len()].clone();
                 self.dirty = true;
             }
             _ => {}
@@ -392,7 +441,23 @@ impl App {
                 }
             }
             ItemKind::Theme => { self.next_value(); }
-            _ => {}
+            ItemKind::Number(_, _) => {
+                let orig_bg = self.status.bg;
+                self.status.bg = 18;
+                let label = item.label.clone();
+                let cur = if let ItemKind::Number(_, v) = &item.kind { v.to_string() } else { String::new() };
+                let new_val = self.status.ask(&format!("{}: ", label), &cur);
+                self.status.bg = orig_bg;
+                if let Ok(v) = new_val.parse::<u64>() {
+                    if let Some(cat) = self.categories.get_mut(self.cat_index) {
+                        if let Some(item) = cat.items.get_mut(self.item_index) {
+                            if let ItemKind::Number(_, ref mut val) = item.kind { *val = v; }
+                        }
+                    }
+                    self.dirty = true;
+                }
+            }
+            _ => { self.next_value(); }
         }
     }
 }
