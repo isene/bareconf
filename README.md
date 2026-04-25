@@ -32,6 +32,20 @@ TUI configuration tool for the [bare](https://github.com/isene/bare) shell, buil
 cargo build --release
 ```
 
+## Part of the [CHasm](https://github.com/isene/chasm) Suite
+
+| Tool | Purpose |
+|------|---------|
+| [bare](https://github.com/isene/bare)         | Shell (assembly) |
+| [glass](https://github.com/isene/glass)       | Terminal emulator (assembly) |
+| [tile](https://github.com/isene/tile)         | Window manager + strip status bar (assembly) |
+| [show](https://github.com/isene/show)         | File viewer (assembly) |
+| [chasm-bits](https://github.com/isene/chasm-bits) | Asmite helpers fed into strip (assembly) |
+| **bareconf**                                  | **Config TUI for bare (Rust)** |
+| [glassconf](https://github.com/isene/glassconf) | Config TUI for glass (Rust) |
+| [tileconf](https://github.com/isene/tileconf) | Config TUI for tile (Rust) |
+| [stripconf](https://github.com/isene/stripconf) | Config TUI for strip (Rust) |
+
 ## Part of the Fe2O3 Rust Terminal Suite
 
 | Tool | Clones | Type |
