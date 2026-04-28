@@ -1,8 +1,0 @@
-[package]
-name = "bareconf"
-version = "0.1.0"
-edition = "2021"
-description = "TUI configuration tool for the bare shell"
-
-[dependencies]
-fe2o3-crust = { path = "../crust" }

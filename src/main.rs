@@ -61,6 +61,11 @@ struct App {
     theme_idx: usize,
     dirty: bool,
     config_path: PathBuf,
+    // Lines from the rc file that bareconf doesn't know how to model
+    // (future bare options, hand-edited keys, anything unrecognised).
+    // Preserved verbatim across save so editing one knob doesn't drop
+    // the rest of the user's customisation.
+    extra_lines: Vec<String>,
 }
 
 impl App {
@@ -82,7 +87,7 @@ impl App {
             nicks: BTreeMap::new(), gnicks: BTreeMap::new(),
             abbrevs: BTreeMap::new(), bookmarks: BTreeMap::new(),
             categories: vec![], cat_index: 0, item_index: 0, theme_idx: 0,
-            dirty: false, config_path,
+            dirty: false, config_path, extra_lines: Vec::new(),
         };
         app.left.border = true;
         app.right.border = true;
@@ -96,10 +101,28 @@ impl App {
         let content = match std::fs::read_to_string(&self.config_path) {
             Ok(c) => c, Err(_) => return,
         };
+        // Keys bareconf knows about and will rewrite from in-memory state.
+        // Anything else is preserved verbatim via extra_lines so we don't
+        // silently drop hand-edited or future-bare config on save.
+        let known_settings: &[&str] = &[
+            "show_tips", "auto_correct", "auto_pair", "rprompt",
+            "show_git_branch", "git_status_fork", "completion_fuzzy",
+            "completion_limit", "slow_command_threshold", "history_dedup",
+        ];
         for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') { continue; }
-            if let Some((key, val)) = line.split_once('=') {
+            let trimmed = line.trim();
+            // Comments and blanks: keep them, but stripped of leading/
+            // trailing whitespace, in extra_lines so the file stays
+            // structured across saves.
+            if trimmed.is_empty() {
+                self.extra_lines.push(String::new());
+                continue;
+            }
+            if trimmed.starts_with('#') {
+                self.extra_lines.push(line.into());
+                continue;
+            }
+            if let Some((key, val)) = trimmed.split_once('=') {
                 let (key, val) = (key.trim(), val.trim());
                 if let Some(n) = key.strip_prefix("nick.") {
                     self.nicks.insert(n.into(), val.into());
@@ -115,8 +138,16 @@ impl App {
                             self.colors[i] = v;
                         }
                     }
+                } else if known_settings.contains(&key) {
+                    // Bool/Number/Choice — load_bool_settings handles these
+                    // by re-reading the file after build_categories.
+                } else {
+                    // Unknown key — preserve verbatim.
+                    self.extra_lines.push(line.into());
                 }
-                // Boolean settings are loaded after build_categories
+            } else {
+                // Line without '=' — preserve verbatim.
+                self.extra_lines.push(line.into());
             }
         }
     }
@@ -146,6 +177,12 @@ impl App {
                     _ => {}
                 }
             }
+        }
+        // Append unknown lines (future bare options, hand-edited keys,
+        // comments) verbatim so a save doesn't silently lose them.
+        for line in &self.extra_lines {
+            out += line;
+            out += "\n";
         }
         atomic_write(&self.config_path, out.as_bytes());
     }
