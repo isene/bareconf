@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "bareconf"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fe2o3-crust",
 ]
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "fe2o3-crust"
-version = "0.1.12"
+version = "0.1.29"
 dependencies = [
  "crossterm",
  "libc",

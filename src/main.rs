@@ -31,7 +31,7 @@ enum ItemKind {
     Bool(&'static str, bool),
     Number(&'static str, u64),
     Choice(&'static str, Vec<String>, String),
-    Alias(String, String),
+    Alias(String),
 }
 
 struct Category {
@@ -247,23 +247,23 @@ impl App {
         ]});
 
         let mut nick_items: Vec<Item> = self.nicks.iter()
-            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("nick".into(), v.clone()) }).collect();
-        if nick_items.is_empty() { nick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("nick".into(), String::new()) }); }
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias(v.clone()) }).collect();
+        if nick_items.is_empty() { nick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias(String::new()) }); }
         cats.push(Category { name: "Nicks".into(), items: nick_items });
 
         let mut gnick_items: Vec<Item> = self.gnicks.iter()
-            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("gnick".into(), v.clone()) }).collect();
-        if gnick_items.is_empty() { gnick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("gnick".into(), String::new()) }); }
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias(v.clone()) }).collect();
+        if gnick_items.is_empty() { gnick_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias(String::new()) }); }
         cats.push(Category { name: "Gnicks".into(), items: gnick_items });
 
         let mut abbrev_items: Vec<Item> = self.abbrevs.iter()
-            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("abbrev".into(), v.clone()) }).collect();
-        if abbrev_items.is_empty() { abbrev_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("abbrev".into(), String::new()) }); }
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias(v.clone()) }).collect();
+        if abbrev_items.is_empty() { abbrev_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias(String::new()) }); }
         cats.push(Category { name: "Abbrevs".into(), items: abbrev_items });
 
         let mut bm_items: Vec<Item> = self.bookmarks.iter()
-            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias("bm".into(), v.clone()) }).collect();
-        if bm_items.is_empty() { bm_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias("bm".into(), String::new()) }); }
+            .map(|(k,v)| Item { label: k.clone(), kind: ItemKind::Alias(v.clone()) }).collect();
+        if bm_items.is_empty() { bm_items.push(Item { label: "(empty)".into(), kind: ItemKind::Alias(String::new()) }); }
         cats.push(Category { name: "Bookmarks".into(), items: bm_items });
 
         self.categories = cats;
@@ -350,7 +350,7 @@ impl App {
                         if selected { style::underline(&label) } else { label },
                         al, style::fg(current, 81), ar)
                 }
-                ItemKind::Alias(_, val) => {
+                ItemKind::Alias(val) => {
                     let v = if val.is_empty() { style::fg("-", 245) } else { val.clone() };
                     format!("  {} = {}", style::fg(&item.label, 6), v)
                 }
